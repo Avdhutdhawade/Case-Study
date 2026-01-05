@@ -1,23 +1,44 @@
 @app.route('/api/products', methods=['POST'])
 def create_product():
     try:
-        data = request.json
+        data = request.get_json()
 
-        required_fields = ['name', 'sku', 'price', 'warehouse_id', 'initial_quantity']
+        # Required fields validation
+        required_fields = [
+            'name', 'sku', 'price',
+            'warehouse_id', 'initial_quantity'
+        ]
         for field in required_fields:
             if field not in data:
                 return {"error": f"{field} is required"}, 400
 
+        # Business validations
+        if data['price'] <= 0:
+            return {"error": "Price must be positive"}, 400
+
+        if data['initial_quantity'] < 0:
+            return {"error": "Initial quantity cannot be negative"}, 400
+
+        # SKU uniqueness check
+        if Product.query.filter_by(sku=data['sku']).first():
+            return {"error": "SKU already exists"}, 409
+
+        # Warehouse existence check
+        warehouse = Warehouse.query.get(data['warehouse_id'])
+        if not warehouse:
+            return {"error": "Warehouse not found"}, 404
+
+        # Create product (warehouse-agnostic)
         product = Product(
             name=data['name'],
             sku=data['sku'],
-            price=data['price'],
-            warehouse_id=data['warehouse_id']
+            price=data['price']
         )
 
         db.session.add(product)
-        db.session.flush()  # Get product.id without committing
+        db.session.flush()  # Generates product.id safely
 
+        # Create inventory record
         inventory = Inventory(
             product_id=product.id,
             warehouse_id=data['warehouse_id'],
@@ -34,4 +55,4 @@ def create_product():
 
     except Exception as e:
         db.session.rollback()
-        return {"error": str(e)}, 500
+        return {"error": "Internal server error"}, 500
